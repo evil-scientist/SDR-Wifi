@@ -34,7 +34,9 @@ if ((numSTS+numESS)==1)
     h = ifft(H_LS_est);
     nVar = sum(abs(h(Lg:N)')*abs(h(Lg:N)))/(N-Lg);
     R_hh = h* conj(h');
+    
     H_MMSE_est = F * R_hh * F_herm * X_herm * inv(X * F * R_hh * F_herm * X_herm + nVar .* I_N) * Y;
+    
     %%%%%%%%%%%%
     est = H_MMSE_est;
 else               

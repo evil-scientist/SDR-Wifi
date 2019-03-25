@@ -29,7 +29,7 @@ tgnChannel.LargeScaleFadingEffect = 'None';
 % generated, passed through a channel and demodulated to determine the
 % packet error rate.
 
-snr = 15:2:45;
+snr = 15:1:45;
 
 % # |maxNumPEs| is the maximum number of packet errors simulated at each
 % SNR point. When the number of packet errors reaches this limit, the
@@ -38,8 +38,14 @@ snr = 15:2:45;
 % point and limits the length of the simulation if the packet error limit
 % is not reached. 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-maxNumPEs = 20; % The maximum number of packet errors at an SNR point
-maxNumPackets = 200; % Maximum number of packets at an SNR point
+maxNumPackets = 200; % Maximum number of packets at an SNR point (1/maxNumPackets of PER resolution)
+
+use_maxNumPEs = 0; %bit dangerous to use... look below about the resolution
+if use_maxNumPEs
+    maxNumPEs = 10; % The maximum number of packet errors at an SNR point %max PER != 1 is (1-maxNumPEs/MaxNumPackets)
+else
+    maxNumPEs = maxNumPackets;
+end
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%                               
 % Get the baseband sampling rate
 fs = wlanSampleRate(cfgHT);
@@ -90,7 +96,8 @@ ind = wlanFieldIndices(cfgHT);
 % The PSDU is recovered using the extracted field and the channel estimate.
 
 S = numel(snr);
-packetErrorRate = zeros(S,1);
+packetErrorRate_LS = zeros(S,1);
+packetErrorRate_MMSE = zeros(S,1);
 
 %parfor i = 1:S % Use 'parfor' to speed up the simulation
 for i = 1:S % Use 'for' to debug the simulation
@@ -111,12 +118,16 @@ for i = 1:S % Use 'for' to debug the simulation
 
     % Loop to simulate multiple packets
     numPacketErrors = 0;
+    missed_LSTF_Packets = 0;
+    packet_offeseted = 0;
+    numPacketErrors_LS = 0;
+    numPacketErrors_MMSE = 0;
     n = 1; % Index of packet transmitted
-    while numPacketErrors<=maxNumPEs && n<=maxNumPackets
+    while n<=maxNumPackets %&& numPacketErrors<=maxNumPEs
         % Generate a packet waveform
         txPSDU = randi([0 1],cfgHT.PSDULength*8,1); % PSDULength in bytes
         tx = wlanWaveformGenerator(txPSDU,cfgHT);
-        
+          
         % Add trailing zeros to allow for channel filter delay
         tx = [tx; zeros(15,cfgHT.NumTransmitAntennas)];
         
@@ -132,8 +143,10 @@ for i = 1:S % Use 'for' to debug the simulation
         % Packet detect and determine coarse packet offset
         coarsePktOffset = wlanPacketDetect(rx,cfgHT.ChannelBandwidth);
         if isempty(coarsePktOffset) % If empty no L-STF detected; packet error
-            numPacketErrors = numPacketErrors+1;
-            n = n+1;
+            numPacketErrors_LS = numPacketErrors_LS+1;
+            numPacketErrors_MMSE = numPacketErrors_MMSE+1;
+            missed_LSTF_Packets = missed_LSTF_Packets +1;
+            n = n+1; 
             continue; % Go to next loop iteration
         end
         
@@ -153,7 +166,9 @@ for i = 1:S % Use 'for' to debug the simulation
         % If packet detected outwith the range of expected delays from the
         % channel modeling; packet error
         if pktOffset>15
-            numPacketErrors = numPacketErrors+1;
+            numPacketErrors_LS = numPacketErrors_LS+1;
+            numPacketErrors_MMSE = numPacketErrors_MMSE+1;
+            packet_offeseted = packet_offeseted + 1;
             n = n+1;
             continue; % Go to next loop iteration
         end
@@ -170,34 +185,71 @@ for i = 1:S % Use 'for' to debug the simulation
         htltfDemod = wlanHTLTFDemodulate(htltf,cfgHT);
         [chanEst_MMSE, chanEst_LS] = wlanHTLTFChannelEstimate2(htltfDemod,cfgHT);
         
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        
         % Extract HT Data samples from the waveform
         htdata = rx(pktOffset+(ind.HTData(1):ind.HTData(2)),:);
-        
-        % Estimate the noise power in HT data field
-        nVarHT = htNoiseEstimate(htdata,chanEst_MMSE,cfgHT);
-        
-        % Recover the transmitted PSDU in HT Data
-        rxPSDU = wlanHTDataRecover(htdata,chanEst_MMSE,nVarHT,cfgHT);
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%  LS  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        if numPacketErrors_LS < maxNumPEs
+            % Estimate the noise power in HT data field for LS 
+            nVarHT_LS = htNoiseEstimate(htdata,chanEst_LS,cfgHT);
 
-        % Determine if any bits are in error, i.e. a packet error
-        packetError = any(biterr(txPSDU,rxPSDU));
-        numPacketErrors = numPacketErrors+packetError;
+            % Recover the transmitted PSDU in HT Data for LS
+            rxPSDU_LS = wlanHTDataRecover(htdata,chanEst_LS,nVarHT_LS,cfgHT);
+
+            % Determine if any bits are in error, i.e. a packet error for LS
+            packetError = any(biterr(txPSDU,rxPSDU_LS));
+            numPacketErrors_LS = numPacketErrors_LS + packetError;
+        end
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%  MMSE  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        if numPacketErrors_LS < maxNumPEs
+            % Estimate the noise power in HT data field for LS
+            nVarHT_MMSE = htNoiseEstimate(htdata,chanEst_MMSE,cfgHT);
+
+            % Recover the transmitted PSDU in HT Data for LS
+            rxPSDU_MMSE = wlanHTDataRecover(htdata,chanEst_MMSE,nVarHT_MMSE,cfgHT);
+
+            % Determine if any bits are in error, i.e. a packet error for LS
+            packetError = any(biterr(txPSDU,rxPSDU_MMSE));
+            numPacketErrors_MMSE = numPacketErrors_MMSE + packetError;
+        end
+        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        
         n = n+1;
     end
     
-    % Calculate packet error rate (PER) at SNR point
-    packetErrorRate(i) = numPacketErrors/(n-1);
+    % Calculate packet error rate (PER) at SNR point for LS
+    if numPacketErrors_LS < maxNumPEs
+        packetErrorRate_LS(i) = numPacketErrors_LS/maxNumPackets;
+    else 
+        packetErrorRate_LS(i) = 1;
+    end
     disp(['SNR ' num2str(snr(i))...
           ' completed after '  num2str(n-1) ' packets,'...
-          ' PER: ' num2str(packetErrorRate(i))]);
+          ' PER: ' num2str(packetErrorRate_LS(i))]);
+      
+    % Calculate packet error rate (PER) at SNR point for MMSE
+    if numPacketErrors_MMSE < maxNumPEs
+        packetErrorRate_MMSE(i) = numPacketErrors_MMSE/maxNumPackets;
+    else 
+        packetErrorRate_MMSE(i) = 1;
+    end
+    disp(['SNR ' num2str(snr(i))...
+          ' completed after '  num2str(n-1) ' packets,'...
+          ' PER: ' num2str(packetErrorRate_MMSE(i))]);
 end
 
 %% Plot Packet Error Rate vs SNR Results
 figure;
-semilogy(snr,packetErrorRate,'-ob');
+semilogy(snr,packetErrorRate_LS,'-ob', 'Color', 'r');
+hold on;
+semilogy(snr,packetErrorRate_MMSE,'-ob', 'Color', 'b');
 grid on;
 xlabel('SNR [dB]');
 ylabel('PER');
-title('802.11n 20MHz, MCS15, Direct Mapping, 2x2 Channel Model B-NLOS');
+title(join(['802.11n ', cfgHT.ChannelBandwidth(4:end), ...
+    'MHz, MCS', num2str(cfgHT.MCS), ...
+    ', Direct Mapping, ', num2str(cfgHT.NumTransmitAntennas), ...
+    'x', num2str(tgnChannel.NumReceiveAntennas) , ...
+    ', Channel ', tgnChannel.DelayProfile]));
+legend('Least Square (LS)', 'Minimum Mean-Square Error (MMSE)');
