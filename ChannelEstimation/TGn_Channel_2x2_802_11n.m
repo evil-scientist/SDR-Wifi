@@ -29,7 +29,7 @@ tgnChannel.LargeScaleFadingEffect = 'None';
 % generated, passed through a channel and demodulated to determine the
 % packet error rate.
 
-snr = 15:1:45;
+snr = 15:2:45;
 
 % # |maxNumPEs| is the maximum number of packet errors simulated at each
 % SNR point. When the number of packet errors reaches this limit, the
@@ -224,7 +224,7 @@ for i = 1:S % Use 'for' to debug the simulation
     else 
         packetErrorRate_LS(i) = 1;
     end
-    disp(['SNR ' num2str(snr(i))...
+    disp(['LS: SNR ' num2str(snr(i))...
           ' completed after '  num2str(n-1) ' packets,'...
           ' PER: ' num2str(packetErrorRate_LS(i))]);
       
@@ -234,7 +234,7 @@ for i = 1:S % Use 'for' to debug the simulation
     else 
         packetErrorRate_MMSE(i) = 1;
     end
-    disp(['SNR ' num2str(snr(i))...
+    disp(['MMSE: SNR ' num2str(snr(i))...
           ' completed after '  num2str(n-1) ' packets,'...
           ' PER: ' num2str(packetErrorRate_MMSE(i))]);
 end

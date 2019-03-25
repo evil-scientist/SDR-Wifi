@@ -119,7 +119,7 @@ k = ind-FFTLen/2-1; % Active subarrier frequency index
 % Verify number of subcarriers to estimate
 coder.internal.errorIf(numSC~=numel(ind), ...
     'wlan:wlanChannelEstimate:IncorrectNumSC',numel(ind),numSC);
-[main_est, ls_est] = wlan.internal.htltfEstimate(rxSym,cbw,numSTS,numESS,ind);
+[main_est, ls_est] = htltfEstimate2(rxSym,cbw,numSTS,numESS,ind);
 est = main_est;
 % Perform frequency smoothing
 if enableFreqSmoothing
