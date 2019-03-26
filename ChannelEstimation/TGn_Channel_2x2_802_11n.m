@@ -1,6 +1,7 @@
 %% 802.11n (HT) Packet Error Rate Simulation for 2x2 TGn Channel (fading with AWGN)
 clc;
 clear all;
+debug = 0;
 % Create a format configuration object for a 2-by-2 HT transmission
 cfgHT = wlanHTConfig;
 cfgHT.ChannelBandwidth = 'CBW20'; % 20 MHz channel bandwidth
@@ -29,7 +30,7 @@ tgnChannel.LargeScaleFadingEffect = 'None';
 % generated, passed through a channel and demodulated to determine the
 % packet error rate.
 
-snr = 15:1:45;
+snr = 15:3:45;
 
 % # |maxNumPEs| is the maximum number of packet errors simulated at each
 % SNR point. When the number of packet errors reaches this limit, the
@@ -38,7 +39,7 @@ snr = 15:1:45;
 % point and limits the length of the simulation if the packet error limit
 % is not reached. 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-maxNumPackets = 500; % Maximum number of packets at an SNR point (1/maxNumPackets of PER resolution)
+maxNumPackets = 1000; % Maximum number of packets at an SNR point (1/maxNumPackets of PER resolution)
 
 use_maxNumPEs = 0; %bit dangerous to use... look below about the resolution
 if use_maxNumPEs
@@ -204,7 +205,7 @@ for i = 1:S % Use 'for' to debug the simulation
             % Determine if any bits are in error, i.e. a packet error for LS
             bit_err = biterr(txPSDU,rxPSDU_LS);
             numBitErrors_LS = numBitErrors_LS + bit_err;
-            if bit_err > 0
+            if bit_err > 0 && debug
                 disp(join(['MMSE, packet nº ', num2str(n), ' has ',num2str(bit_err), ...
                     ' wrongs bits.Total errors so far: ', num2str(numBitErrors_LS)]));
             end
@@ -223,7 +224,7 @@ for i = 1:S % Use 'for' to debug the simulation
             % Determine if any bits are in error, i.e. a packet error for LS
             bit_err = biterr(txPSDU,rxPSDU_MMSE);
             numBitErrors_MMSE = numBitErrors_MMSE + bit_err;
-            if bit_err > 0
+            if bit_err > 0 && debug
                 disp(join(['MMSE, packet nº ', num2str(n), ' has ',num2str(bit_err), ...
                     ' wrongs bits.Total errors so far: ', num2str(numBitErrors_MMSE)]));
             end
