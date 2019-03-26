@@ -1,4 +1,4 @@
-function [est, H_LS_est] = htltfEstimate2(sym,chanBW,numSTS,numESS,ind)
+function [est, H_LS_est] = htltfEstimate2(sym,chanBW,numSTS,numESS,ind, snr)
 %htltfEstimate Channel estimate using the HT-LTF
 %
 %   Note: This is an internal undocumented function and its API and/or
@@ -25,17 +25,19 @@ if ((numSTS+numESS)==1)
     H_LS_est = permute(H_LS_est,[1 3 2]);
     %%%%%%%DFT-CE%%%%%%
     F = dftmtx(N) ./sqrt(N);
-    F_herm = conj(F');
+    %F_herm = conj(F');
+    F_herm = F';
     X = diag(X); %X must be a matrix now!
-    X_herm = conj(X');
+    %X_herm = conj(X');
+    X_herm = X';
     I_N = eye(N);
-    Lg = 9; %nº of cyclic prefixes %or 16?
+    Lg = 16; %nº of cyclic prefixes %or 16?
     %nVar = 10^((-228.6 + 10*log10(290) + 10*log10(20e6))/10); %the 20e6 should be fs = B %try 0.006 or use helper
     h = ifft(H_LS_est);
-    %nVar = sum(abs(h(Lg:N)')*abs(h(Lg:N)))/(N-Lg);
-    %disp(nVar);
-    R_hh = h* conj(h');
-    
+    nVar = sum(abs(h(Lg+1:N)')*abs(h(Lg+1:N)))/(N-Lg);
+    %nVar = 10^(-snr/10);
+    %R_hh = h* conj(h');
+    R_hh = h*h';
     H_MMSE_est = F * R_hh * F_herm * X_herm * inv(X * F * R_hh * F_herm * X_herm + nVar .* I_N) * Y;
     
     %%%%%%%%%%%%

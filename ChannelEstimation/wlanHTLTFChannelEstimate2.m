@@ -1,4 +1,4 @@
-function [est, ls_est] = wlanHTLTFChannelEstimate2(rxSym,cfgHT,varargin)
+function [est, ls_est] = wlanHTLTFChannelEstimate2(rxSym,cfgHT,snr,varargin)
 % wlanHTLTFChannelEstimate Channel estimation using the HT-LTF
 %   EST = wlanHTLTFChannelEstimate(RXSYM,CFGHT) returns the estimated
 %   channel between all space-time, extension streams and receive antennas
@@ -75,9 +75,9 @@ function [est, ls_est] = wlanHTLTFChannelEstimate2(rxSym,cfgHT,varargin)
 %#codegen
 
 % Validate number of arguments
-narginchk(2,3);
+narginchk(3,4);
 
-if nargin > 2
+if nargin > 3
     span = varargin{1};
     enableFreqSmoothing = true;
 else
@@ -119,7 +119,7 @@ k = ind-FFTLen/2-1; % Active subarrier frequency index
 % Verify number of subcarriers to estimate
 coder.internal.errorIf(numSC~=numel(ind), ...
     'wlan:wlanChannelEstimate:IncorrectNumSC',numel(ind),numSC);
-[main_est, ls_est] = htltfEstimate2(rxSym,cbw,numSTS,numESS,ind);
+[main_est, ls_est] = htltfEstimate2(rxSym,cbw,numSTS,numESS,ind,snr);
 est = main_est;
 % Perform frequency smoothing
 if enableFreqSmoothing
