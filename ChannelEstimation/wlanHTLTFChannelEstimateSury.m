@@ -1,4 +1,4 @@
-function [est, ls_est] = wlanHTLTFChannelEstimate2(rxSym,cfgHT,snr,varargin)
+function [est, ls_est] = wlanHTLTFChannelEstimateSury(rxSym,cfgHT,snr,varargin)
 % wlanHTLTFChannelEstimate Channel estimation using the HT-LTF
 %   EST = wlanHTLTFChannelEstimate(RXSYM,CFGHT) returns the estimated
 %   channel between all space-time, extension streams and receive antennas
@@ -115,12 +115,11 @@ cfgOFDM = wlan.internal.wlanGetOFDMConfig(cbw,'Long','HT',numSTS); % Get OFDM co
 FFTLen = cfgOFDM.FFTLength;
 chanBWInMHz = FFTLen/64*20;
 ind = sort([cfgOFDM.DataIndices; cfgOFDM.PilotIndices]); % Estimate all subcarriers
-%disp(ind);
 k = ind-FFTLen/2-1; % Active subarrier frequency index
 % Verify number of subcarriers to estimate
 coder.internal.errorIf(numSC~=numel(ind), ...
     'wlan:wlanChannelEstimate:IncorrectNumSC',numel(ind),numSC);
-[main_est, ls_est] = htltfEstimate2(rxSym,cbw,numSTS,numESS,ind,snr);
+[main_est, ls_est] = htltfEstimateSury(rxSym,cbw,numSTS,numESS,ind,snr);
 est = main_est;
 % Perform frequency smoothing
 if enableFreqSmoothing

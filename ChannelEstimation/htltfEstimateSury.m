@@ -1,4 +1,4 @@
-function [est, H_LS_est] = htltfEstimate2(sym,chanBW,numSTS,numESS,ind, snr)
+function [est, H_LS_est] = htltfEstimateSury(sym,chanBW,numSTS,numESS,ind, snr)
 %htltfEstimate Channel estimate using the HT-LTF
 %
 %   Note: This is an internal undocumented function and its API and/or
@@ -13,54 +13,42 @@ function [est, H_LS_est] = htltfEstimate2(sym,chanBW,numSTS,numESS,ind, snr)
 
 %#codegen
 
-if ((numSTS+numESS)==1)
-    % If one space time stream then use LS estimation directly
+if ((numSTS+numESS)==1) % If one space time stream then use LS estimation directly
+    
     ltf = wlan.internal.vhtltfSequence(chanBW,numSTS,numESS);
-    %%%%%%%%
     Y = squeeze(sym(:,1,:)); %received symbols
-    X = ltf(ind); %sent symbols (select only the same carrier symbols)
+    X = ltf(ind); %symbols sent (select the correct carrier symbols)
     N = length(ind); %Nº of carriers = len X = len Y = len(est) = len(H_LS_est)
+    
     %%%%%%%%  LS   %%%%%%%%%
     H_LS_est = bsxfun(@rdivide,Y,X);
     H_LS_est = permute(H_LS_est,[1 3 2]);
+    
     %%%%%%%DFT-CE%%%%%%
     F = dftmtx(N) ./sqrt(N);
-    %F_herm = conj(F');
     F_herm = F';
     X = diag(X); %X must be a matrix now!
-    %X_herm = conj(X');
     X_herm = X';
     I_N = eye(N);
-    Lg = 16; %nº of cyclic prefixes %or 16?
-    h_pre = ifft(H_LS_est);
-    %disp(h);
+    Lg = 16; %Length of cyclic prefix == 16
+    h_pre = ifft(H_LS_est); %disp(h_pre);
     nVar = 0;
     for foo = Lg+1:N
-        nVar = nVar + abs(h_pre(foo));
-        %abs(h(foo));
+        nVar = nVar + abs(h_pre(foo))^2;
     end
-    nVar = nVar/(N-Lg);
-    %disp('foo');
-    %disp(nVar);
-    %disp('Notfoo');
-    %disp(sum(abs(h(Lg+1:N)')*abs(h(Lg+1:N)))/(N-Lg));
+    nVar = nVar/(N-Lg); %disp(nVar);
     h = zeros(1,56);
     for foo = 1:Lg
         h(foo) = h_pre(foo);
     end
-    %R_hh = h*h';
     %disp(length(h));
-    [xc,lags] = xcorr(h,h,length(h)-1);
+    [xc,lags] = xcorr(h,h,length(h)-1,'biased');
     r = xc(length(h):end);
-    %r = xc(1:length(h));
-    %disp(size(r));
-    R_hh = toeplitz(r,conj(r));
+    R_hh = toeplitz(r);
     %disp(F * R_hh * F_herm * X_herm);
-    %disp(size(R_hh));    
     H_MMSE_est = F * R_hh * F_herm * X_herm * inv(X * F * R_hh * F_herm * X_herm + nVar .* I_N) * Y;
-    
-    %%%%%%%%%%%%
     est = H_MMSE_est;
+    %%%%%%%%%%%%
 else               
     % MIMO channel estimation as per Perahia, Eldad, and Robert Stacey.
     % Next Generation Wireless LANs: 802.11 n and 802.11 ac. Cambridge
@@ -88,7 +76,8 @@ else
         end
     end
     %disp(size(H_LS_est));
-    %%%%%%%%%%%%%%%%   
+    
+    %%%%%MIMO %%%%%%%%%%
     %disp(ltf(ind)');
     H_tilda = complex(zeros(numel(ltf),numSTS+numESS,numRx));
     h_tilda = complex(zeros(numel(ltf),numSTS+numESS,numRx));
