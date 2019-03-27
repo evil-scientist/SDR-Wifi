@@ -7,9 +7,18 @@ cfgHT = wlanHTConfig;
 cfgHT.ChannelBandwidth = 'CBW20'; % 20 MHz channel bandwidth
 cfgHT.NumTransmitAntennas = 1;    % transmit antennas
 cfgHT.NumSpaceTimeStreams = 1;    % space-time streams
-cfgHT.PSDULength = 1000;          % PSDU length in bytes
-cfgHT.MCS = 7;                    % spatial streams and mod & cod scheems 64-QAM rate-5/6 
+cfgHT.MCS = 5;                    % spatial streams and mod & cod scheems 64-QAM rate-5/6 
 cfgHT.ChannelCoding = 'BCC';      % BCC channel coding % no space time block coding
+
+use_beacons = 1;
+if use_beacons
+    [txPSDU,mpsu_len,fc] = create_beacon(); %#ok<*UNRCH>
+    cfgHT.PSDULength = mpsu_len;
+else
+    %fc = 5.29e9; %default for TGn channel
+    cfgHT.PSDULength = 100;          % PSDU length in bytes
+end
+
 
 %% Channel Configuration
 % In this example a TGn N-LOS channel model is used with delay profile
@@ -30,7 +39,7 @@ tgnChannel.LargeScaleFadingEffect = 'None';
 % generated, passed through a channel and demodulated to determine the
 % packet error rate.
 
-snr = 15:3:45;
+snr = 5:2:45;
 
 % # |maxNumPEs| is the maximum number of packet errors simulated at each
 % SNR point. When the number of packet errors reaches this limit, the
@@ -39,7 +48,7 @@ snr = 15:3:45;
 % point and limits the length of the simulation if the packet error limit
 % is not reached. 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-maxNumPackets = 1000; % Maximum number of packets at an SNR point (1/maxNumPackets of PER resolution)
+maxNumPackets = 100; % Maximum number of packets at an SNR point (1/maxNumPackets of PER resolution)
 
 use_maxNumPEs = 0; %bit dangerous to use... look below about the resolution
 if use_maxNumPEs
@@ -47,6 +56,7 @@ if use_maxNumPEs
 else
     maxNumPEs = maxNumPackets;
 end
+
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%                               
 % Get the baseband sampling rate
 fs = wlanSampleRate(cfgHT);
@@ -102,8 +112,17 @@ packetErrorRate_MMSE = zeros(S,1);
 numBitErrorsRate_LS = zeros(S,1);
 numBitErrorsRate_MMSE = zeros(S,1);
 
-%parfor i = 1:S % Use 'parfor' to speed up the simulation
-for i = 1:S % Use 'for' to debug the simulation
+if debug
+    perPacket_numBitErrorsRate_LS = zeros(S,maxNumPackets);
+    perPacket_numBitErrorsRate_MMSE = zeros(S,maxNumPackets);
+end
+
+
+pktOffset = zeros(S,maxNumPackets);
+missed_LSTF_Packets =  zeros(S,1);
+packet_offeseted = zeros(S,1);
+
+for i = 1:S
     
 % Set random substream index per iteration to ensure that each
 % iteration uses a repeatable set of random numbers
@@ -117,13 +136,10 @@ for i = 1:S % Use 'for' to debug the simulation
     % Normalization
     awgnChannel.SignalPower = 1/tgnChannel.NumReceiveAntennas;
     % Account for energy in nulls
-    awgnChannel.SNR = snr(i)-10*log10(Nfft/Nst_ht); 
-    %awgnChannel.Variance
+    awgnChannel.SNR = snr(i)-10*log10(Nfft/Nst_ht);
     
     % Loop to simulate multiple packets
     numPacketErrors = 0;
-    missed_LSTF_Packets = 0;
-    packet_offeseted = 0;
     numPacketErrors_LS = 0;
     numBitErrors_LS = 0;
     numPacketErrors_MMSE = 0;
@@ -131,7 +147,9 @@ for i = 1:S % Use 'for' to debug the simulation
     n = 1; % Index of packet transmitted
     while n<=maxNumPackets %&& numPacketErrors<=maxNumPEs
         % Generate a packet waveform
-        txPSDU = randi([0 1],cfgHT.PSDULength*8,1); % PSDULength in bytes
+        if ~use_beacons
+            txPSDU = randi([0 1],cfgHT.PSDULength*8,1); % PSDULength in bytes
+        end
         tx = wlanWaveformGenerator(txPSDU,cfgHT);
           
         % Add trailing zeros to allow for channel filter delay
@@ -151,7 +169,7 @@ for i = 1:S % Use 'for' to debug the simulation
         if isempty(coarsePktOffset) % If empty no L-STF detected; packet error
             numPacketErrors_LS = numPacketErrors_LS+1;
             numPacketErrors_MMSE = numPacketErrors_MMSE+1;
-            missed_LSTF_Packets = missed_LSTF_Packets +1;
+            missed_LSTF_Packets(i) = missed_LSTF_Packets(i) +1;
             n = n+1; 
             continue; % Go to next loop iteration
         end
@@ -167,32 +185,33 @@ for i = 1:S % Use 'for' to debug the simulation
             cfgHT.ChannelBandwidth);
         
         % Determine final packet offset
-        pktOffset = coarsePktOffset+finePktOffset;
+        pktOffset(i,n) = coarsePktOffset+finePktOffset;
         
         % If packet detected outwith the range of expected delays from the
         % channel modeling; packet error
-        if pktOffset>15
+        if pktOffset(i,n)>15
             numPacketErrors_LS = numPacketErrors_LS+1;
             numPacketErrors_MMSE = numPacketErrors_MMSE+1;
-            packet_offeseted = packet_offeseted + 1;
+            packet_offeseted(i) = packet_offeseted(i) + 1;
             n = n+1;
             continue; % Go to next loop iteration
         end
 
         % Extract L-LTF and perform fine frequency offset correction
-        lltf = rx(pktOffset+(ind.LLTF(1):ind.LLTF(2)),:); 
+        lltf = rx(pktOffset(i,n)+(ind.LLTF(1):ind.LLTF(2)),:); 
         fineFreqOff = wlanFineCFOEstimate(lltf,cfgHT.ChannelBandwidth);
         rx = helperFrequencyOffset(rx,fs,-fineFreqOff);
         
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         % Extract HT-LTF samples from the waveform, demodulate and perform
         % channel estimation
-        htltf = rx(pktOffset+(ind.HTLTF(1):ind.HTLTF(2)),:);
+        htltf = rx(pktOffset(i,n)+(ind.HTLTF(1):ind.HTLTF(2)),:);
         htltfDemod = wlanHTLTFDemodulate(htltf,cfgHT);
+        %Channel Estimation!!!!!!
         [chanEst_MMSE, chanEst_LS] = wlanHTLTFChannelEstimate2(htltfDemod,cfgHT,snr(i));
         
         % Extract HT Data samples from the waveform
-        htdata = rx(pktOffset+(ind.HTData(1):ind.HTData(2)),:);
+        htdata = rx(pktOffset(i,n)+(ind.HTData(1):ind.HTData(2)),:);
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%  LS  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         %if numPacketErrors_LS < maxNumPEs
@@ -206,6 +225,7 @@ for i = 1:S % Use 'for' to debug the simulation
             bit_err = biterr(txPSDU,rxPSDU_LS);
             numBitErrors_LS = numBitErrors_LS + bit_err;
             if bit_err > 0 && debug
+                perPacket_numBitErrors_LS(i) = bit_err;
                 disp(join(['MMSE, packet nº ', num2str(n), ' has ',num2str(bit_err), ...
                     ' wrongs bits.Total errors so far: ', num2str(numBitErrors_LS)]));
             end
@@ -225,6 +245,7 @@ for i = 1:S % Use 'for' to debug the simulation
             bit_err = biterr(txPSDU,rxPSDU_MMSE);
             numBitErrors_MMSE = numBitErrors_MMSE + bit_err;
             if bit_err > 0 && debug
+                perPacket_numBitErrors_MMSE(i) = bit_err;
                 disp(join(['MMSE, packet nº ', num2str(n), ' has ',num2str(bit_err), ...
                     ' wrongs bits.Total errors so far: ', num2str(numBitErrors_MMSE)]));
             end
