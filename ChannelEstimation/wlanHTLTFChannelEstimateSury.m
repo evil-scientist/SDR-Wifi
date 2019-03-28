@@ -1,4 +1,4 @@
-function [est, ls_est] = wlanHTLTFChannelEstimateSury(rxSym,cfgHT,snr,varargin)
+function [est, ls_est] = wlanHTLTFChannelEstimateSury(rxSym,cfgHT,htdata,varargin)
 % wlanHTLTFChannelEstimate Channel estimation using the HT-LTF
 %   EST = wlanHTLTFChannelEstimate(RXSYM,CFGHT) returns the estimated
 %   channel between all space-time, extension streams and receive antennas
@@ -119,7 +119,7 @@ k = ind-FFTLen/2-1; % Active subarrier frequency index
 % Verify number of subcarriers to estimate
 coder.internal.errorIf(numSC~=numel(ind), ...
     'wlan:wlanChannelEstimate:IncorrectNumSC',numel(ind),numSC);
-[main_est, ls_est] = htltfEstimateSury(rxSym,cbw,numSTS,numESS,ind,snr);
+[main_est, ls_est] = htltfEstimateSury(rxSym,cbw,numSTS,numESS,ind,htdata,cfgHT);
 est = main_est;
 % Perform frequency smoothing
 if enableFreqSmoothing

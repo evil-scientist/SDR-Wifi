@@ -1,4 +1,4 @@
-function [est, H_LS_est] = htltfEstimateSury(sym,chanBW,numSTS,numESS,ind, snr)
+function [est, H_LS_est] = htltfEstimateSury(sym,chanBW,numSTS,numESS,ind, htdata,cfgHT)
 %htltfEstimate Channel estimate using the HT-LTF
 %
 %   Note: This is an internal undocumented function and its API and/or
@@ -24,6 +24,8 @@ if ((numSTS+numESS)==1) % If one space time stream then use LS estimation direct
     H_LS_est = bsxfun(@rdivide,Y,X);
     H_LS_est = permute(H_LS_est,[1 3 2]);
     
+    nVarHT_LS = htNoiseEstimate(htdata,H_LS_est,cfgHT);
+            
     %%%%%%%DFT-CE%%%%%%
     F = dftmtx(N) ./sqrt(N);
     F_herm = F';
@@ -36,7 +38,14 @@ if ((numSTS+numESS)==1) % If one space time stream then use LS estimation direct
     for foo = Lg+1:N
         nVar = nVar + abs(h_pre(foo))^2;
     end
-    nVar = nVar/(N-Lg); %disp(nVar);
+    nVar = nVar/(N-Lg); 
+    %nVar = nVarHT_LS;
+    %disp(nVar);
+    %disp(vari);
+    
+    %nVar = 10^(-snr);
+    %disp(nVar);
+    
     h = zeros(1,56);
     for foo = 1:Lg
         h(foo) = h_pre(foo);
@@ -45,6 +54,7 @@ if ((numSTS+numESS)==1) % If one space time stream then use LS estimation direct
     [xc,lags] = xcorr(h,h,length(h)-1,'biased');
     r = xc(length(h):end);
     R_hh = toeplitz(r);
+    %R_hh = h_pre*h_pre';
     %disp(F * R_hh * F_herm * X_herm);
     H_MMSE_est = F * R_hh * F_herm * X_herm * inv(X * F * R_hh * F_herm * X_herm + nVar .* I_N) * Y;
     est = H_MMSE_est;
