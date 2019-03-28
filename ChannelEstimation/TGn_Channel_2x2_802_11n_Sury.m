@@ -51,7 +51,7 @@ cfgHT.ChannelCoding = 'LDPC';      % BCC channel coding % no space time block co
 
 % Create and configure the channel
 tgnChannel = wlanTGnChannel;
-tgnChannel.DelayProfile = 'Model-B';
+tgnChannel.DelayProfile = 'Model-E';
 tgnChannel.NumTransmitAntennas = cfgHT.NumTransmitAntennas;
 tgnChannel.NumReceiveAntennas = 1;
 tgnChannel.TransmitReceiveDistance = 10; % Distance in meters for NLOS
@@ -68,13 +68,11 @@ ind = wlanFieldIndices(cfgHT); % Indices for accessing each field within the tim
 
 snr = 10:2:35;% Simulation Parameters
 S = numel(snr);
-packetErrorRate_LS = zeros(S,1);
+
 packetErrorRate_MMSE = zeros(S,1);
-numBitErrorsRate_LS = zeros(S,1);
 numBitErrorsRate_MMSE = zeros(S,1);
-BER_LS = zeros(S,1);
-BER_MMSE = zeros(S,1);
 maxNumPackets = 1000; % Maximum number of packets at an SNR point (1/maxNumPackets of PER resolution)
+BER_MMSE = zeros(maxNumPackets,S);
 use_maxNumPEs = 0; %bit dangerous to use... look below about the resolution
 if use_maxNumPEs
     maxNumPEs = 10; % The maximum number of packet errors at an SNR point %max PER != 1 is (1-maxNumPEs/MaxNumPackets)
@@ -96,11 +94,8 @@ for i = 1:S % Use 'for' to debug the simulation
     numPacketErrors = 0;
     missed_LSTF_Packets = 0;
     packet_offeseted = 0;
-    numPacketErrors_LS = 0;
-    numBitErrors_LS = 0;
     numPacketErrors_MMSE = 0;
     numBitErrors_MMSE = 0;
-    bitErrorRate_LS = 0;
     bitErrorRate_MMSE = 0;
 
     n = 1; % Index of packet transmitted
@@ -117,7 +112,6 @@ for i = 1:S % Use 'for' to debug the simulation
         % Packet detect and determine coarse packet offset
         coarsePktOffset = wlanPacketDetect(rx,cfgHT.ChannelBandwidth);
         if isempty(coarsePktOffset) % If empty no L-STF detected; packet error
-            numPacketErrors_LS = numPacketErrors_LS+1;
             numPacketErrors_MMSE = numPacketErrors_MMSE+1;
             missed_LSTF_Packets = missed_LSTF_Packets +1;
             n = n+1; 
@@ -139,7 +133,6 @@ for i = 1:S % Use 'for' to debug the simulation
         % If packet detected outwith the range of expected delays from the
         % channel modeling; packet error
         if pktOffset>7
-            numPacketErrors_LS = numPacketErrors_LS+1;
             numPacketErrors_MMSE = numPacketErrors_MMSE+1;
             packet_offeseted = packet_offeseted + 1;
             n = n+1;
@@ -162,40 +155,21 @@ for i = 1:S % Use 'for' to debug the simulation
         htltfDemod = wlanHTLTFDemodulate(htltf,cfgHT);
         [chanEst_MMSE, chanEst_LS] = wlanHTLTFChannelEstimateSury(htltfDemod,cfgHT,htdata);
         
-        
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%  LS  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        if numPacketErrors_LS < maxNumPEs
-            % Estimate the noise power in HT data field for LS 
-            nVarHT_LS = htNoiseEstimate(htdata,chanEst_LS,cfgHT);
-            %disp(nVarHT_LS);
-            % Recover the transmitted PSDU in HT Data for LS
-            rxPSDU_LS = wlanHTDataRecover(htdata,chanEst_LS,nVarHT_LS,cfgHT);
-
-            % Determine if any bits are in error, i.e. a packet error for LS
-            [bit_err,err] = biterr(txPSDU,rxPSDU_LS);
-            numBitErrors_LS = numBitErrors_LS + bit_err;
-            bitErrorRate_LS = bitErrorRate_LS + err; 
-            if bit_err > 0 && DEBUG
-                disp(join(['LS, packet nº ', num2str(n), ' has ',num2str(bit_err), ...
-                    ' wrong bits.Total errors so far: ', num2str(numBitErrors_LS)]));
-            end
-            packetError = any(bit_err);
-            numPacketErrors_LS = numPacketErrors_LS + packetError;
-        end
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%  MMSE  %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-        if numPacketErrors_LS < maxNumPEs
-            % Estimate the noise power in HT data field for LS
+        if numPacketErrors_MMSE < maxNumPEs
+            % Estimate the noise power in HT data field for MMSE
             nVarHT_MMSE = htNoiseEstimate(htdata,chanEst_MMSE,cfgHT);
 
-            % Recover the transmitted PSDU in HT Data for LS
+            % Recover the transmitted PSDU in HT Data for MMSE
             rxPSDU_MMSE = wlanHTDataRecover(htdata,chanEst_MMSE,nVarHT_MMSE,cfgHT);
 
-            % Determine if any bits are in error, i.e. a packet error for LS
+            % Determine if any bits are in error, i.e. a packet error for
+            % MMSE
             [bit_err,err] = biterr(txPSDU,rxPSDU_MMSE);
-            numBitErrors_MMSE = numBitErrors_MMSE + bit_err;
+            %numBitErrors_MMSE = numBitErrors_MMSE + bit_err;
             bitErrorRate_MMSE = bitErrorRate_MMSE + err; 
+            BER_MMSE(n,i) = err;
             if bit_err > 0 && DEBUG
                 disp(join(['MMSE, packet nº ', num2str(n), ' has ',num2str(bit_err), ...
                     ' wrong bits.Total errors so far: ', num2str(numBitErrors_MMSE)]));
@@ -203,23 +177,12 @@ for i = 1:S % Use 'for' to debug the simulation
             packetError = any(bit_err);
             numPacketErrors_MMSE = numPacketErrors_MMSE + packetError;
         end
+        
         %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
         n = n+1;
     end
-    numBitErrorsRate_LS(i) = numBitErrors_LS/(length(txPSDU) * maxNumPackets);
-    numBitErrorsRate_MMSE(i) = numBitErrors_MMSE/(length(txPSDU) * maxNumPackets);
-    
-    BER_LS(i) = bitErrorRate_LS / maxNumPackets;
-    BER_MMSE(i) = bitErrorRate_MMSE / maxNumPackets;
-    % Calculate packet error rate (PER) at SNR point for LS
-    if numPacketErrors_LS < maxNumPEs
-        packetErrorRate_LS(i) = numPacketErrors_LS/maxNumPackets;
-    else 
-        packetErrorRate_LS(i) = 1;
-    end
-    if DEBUG
-        disp(['LS: SNR ' num2str(snr(i)) ' completed after '  num2str(n-1) ' packets,' ' PER: ' num2str(packetErrorRate_LS(i))]);
-    end
+    %numBitErrorsRate_MMSE(i) = numBitErrors_MMSE/(length(txPSDU) * maxNumPackets);
+    %BER_MMSE(i) = bitErrorRate_MMSE / maxNumPackets;
     % Calculate packet error rate (PER) at SNR point for MMSE
     if numPacketErrors_MMSE < maxNumPEs
         packetErrorRate_MMSE(i) = numPacketErrors_MMSE/maxNumPackets;
@@ -232,7 +195,6 @@ for i = 1:S % Use 'for' to debug the simulation
 end
 %% Plot Packet Error Rate vs SNR Results
 figure;
-semilogy(snr,packetErrorRate_LS,'-ob', 'Color', 'r');
 hold on;
 semilogy(snr,packetErrorRate_MMSE,'-x', 'Color', 'b');
 grid on;
@@ -241,21 +203,28 @@ ylabel('PER');
 title(join(['802.11n ', cfgHT.ChannelBandwidth(4:end), ...
     'MHz, MCS', num2str(cfgHT.MCS), ...
     ', Direct Mapping, ', num2str(cfgHT.NumTransmitAntennas), ...
-    'x', num2str(tgnChannel.NumReceiveAntennas) , ...
-    ', Channel ', tgnChannel.DelayProfile]));
-legend('LS', 'MMSE-DFT');
+    'x', num2str(tgnChannel.NumReceiveAntennas)]));
+%legend(tgnChannel.DelayProfile);
 
-
+%%
+%legend('LS', 'MMSE-DCT');
+x = snr; 
+y = BER_MMSE; % Create Dependent Variable ‘Experiments’ Data
+N = size(y,1); % Number of ‘Experiments == PACKETS’ In Data Set
+yMean = mean(y); % Mean Of All Experiments At Each Value Of ‘x’
+ySEM = std(y)/sqrt(N); % Compute ‘Standard Error Of The Mean’ Of All Experiments At Each Value Of ‘x’
+CI95 = tinv([0.025 0.975], N-1); % Calculate 95% Probability Intervals Of t-Distribution
+yCI95 = bsxfun(@times, ySEM, CI95(:)); % Calculate 95% Confidence Intervals Of All Experiments At Each Value Of ‘x’
 figure;
-semilogy(snr,BER_LS,'-ob', 'Color', 'r');
-hold on;
-semilogy(snr,BER_MMSE,'-x', 'Color', 'b');
-grid on;
+semilogy(x,yMean,'-x', 'Color', 'b');% Plot Mean Of All Experiments
 xlabel('SNR [dB]');
 ylabel('BER');
+hold on;
+semilogy(x,yCI95+yMean,'-o', 'Color', 'r'); % Plot 95% Confidence Intervals Of All Experiments
+hold off;
+grid on;
 title(join(['802.11n ', cfgHT.ChannelBandwidth(4:end), ...
     'MHz, MCS', num2str(cfgHT.MCS), ...
     ', Direct Mapping, ', num2str(cfgHT.NumTransmitAntennas), ...
-    'x', num2str(tgnChannel.NumReceiveAntennas) , ...
-    ', Channel ', tgnChannel.DelayProfile]));
-legend('LS', 'MMSE-DCT');
+    'x', num2str(tgnChannel.NumReceiveAntennas)]));
+legend('MMSE-DCT');
